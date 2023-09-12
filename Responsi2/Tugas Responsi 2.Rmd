@@ -1,1 +1,286 @@
+---
+title: "Pertemuan 2 - Regresi"
+author: Jonathan Marjono (G1401211064)
+output:
+  html_document:
+    theme: yeti
+    toc: true
+    toc_float: true
+  word_document: default
+  pdf_document: default
+---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Pemanggilan *Packages*
+
+```{r}
+library(dplyr)
+library(TTR)
+library(forecast)
+library(lmtest) #digunakan untuk uji formal pendeteksian autokorelasi
+library(orcutt) #untuk membuat model regresi Cochrane-Orcutt
+library(HoRM) #untuk membuat model regresi Hildreth-Lu
+```
+
+## Input Data
+
+Data yang digunakan dalam kesempatan kali ini adalah data wind power forecasting. Data tersebut dapat diakses pada link berikut.
+
+url = "<https://www.kaggle.com/datasets/theforcecoder/wind-power-forecasting?select=Turbine_Data.csv>"
+
+```{r}
+library(rio) #Library
+dtturbin <- import("https://raw.githubusercontent.com/jonathanmarjonoxz/MPDW/main/Responsi2/Turbine_Data.csv") #Impor data kemudian memasukkan dlm variabel dtturbin
+dtturbin <- dtturbin[118081:nrow(dtturbin),c(2,18,22)] #Mengambil baris dan kolom yang diperlukan
+dim(dtturbin) #Melihat dimensi dtturbin, terdapat 144 baris dan 3 kolom
+View(dtturbin ) #Menampilkan dtturbin
+```
+
+## Eksplorasi Data
+
+Sebelum melakukan regresi, akan diperlihatkan *plot time-series* dari data wind power forecasting.
+
+```{r}
+#Membentuk objek time series
+ActivePower.ts<-ts(dtturbin$ActivePower)
+ActivePower.ts
+
+RotorRPM.ts<-ts(dtturbin$RotorRPM)
+RotorRPM.ts
+
+WindSpeed.ts<-ts(dtturbin$WindSpeed)
+WindSpeed.ts
+
+#Membuat plot time series
+ts.plot(ActivePower.ts, xlab="Time Period ", ylab="Active Power", main= "Time Series Plot of Active Power")
+points(ActivePower.ts)
+
+ts.plot(RotorRPM.ts, xlab="Time Period ", ylab="Rotor RPM", main= "Time Series Plot of Rotor RPM")
+points(RotorRPM.ts)
+
+ts.plot(WindSpeed.ts, xlab="Time Period ", ylab="Wind Speed", main= "Time Series Plot of Wind Speed")
+points(WindSpeed.ts)
+```
+
+## Regresi
+
+### Penjelasan Peubah
+
+Daya kinetik yang dihasilkan oleh kincir angin dipengaruhi sepenuhnya oleh kecepatan angin yang dihasilkan oleh kincir angin tersebut (Sifa *et al.* 2017). Disisi lainnya turbin angin sering dijumpai untuk mengakomodasi listrik masyarakat dengan menggunakan konversi energi serta SDA yang dapat diperbaharui yakni angin (Widyanto S.W. *et al.* 2018). Oleh karena itu dipilih peubah respon yang dipengaruhi peubah penjelas yakni Active Power atau daya yang dihasilkan turbin.
+
+Selain kecepatan angin, RPM rotasi putaran turbin juga mempengaruhi daya yang dihasilkan. Semakin cepat rotasi dengan didukung cepatnya kecepatan hembusan angin maka daya yang dihasilkan akan semakin meningkat (Effendi A. *et al.* 2019). Hal ini juga disampaikan kembali bahwa ketika kecepatan rotasi rotor berkurang (RPM menurun) maka secara tidak langsung daya output yang dihasilkan akan berkurang juga (Buana SW *et al.* 2020).
+
+### Melakukan Regresi
+
+```{r}
+#Pembuatan Model Regresi
+#model regresi
+model<- lm(ActivePower~RotorRPM+WindSpeed, data = dtturbin)
+summary(model)
+```
+
+Model yang dihasilkan adalah sebagai berikut:
+
+$$
+y_i= -843.301 -35.760x_t + 329.362x_{t-1} 
+$$ Berdasarkan ringkasan model dapat diketahui bahwa hasil uji F memiliki *p-value* \< $\alpha$ (5%). Artinya, minimal terdapat satu variabel yang berpengaruh nyata terhadap model. Hasil uji-t parsial ketiga parameter regresi, yaitu intersep dan koefisien regresi juga menunjukkan hal yang sama, yaitu memiliki *p-value* \< $\alpha$ (5%) sehingga nyata dalam taraf 5%. Selanjutnya dapat dilihat juga nilai $R^2=0.9364$. Artinya, sebesar 93.64% keragaman nilai dari daya yang dihasilkan dapat dijelaskan oleh peubah putaran rotor serta kecepatan angin. Hasil ini menunjukkan hasil yang bagus, seolah mendapatkan hasil terbaik. Namun, kita perlu melakukan uji terhadap sisaannya seperti berikut ini.
+
+```{r}
+#sisaan dan fitted value
+sisaan<- residuals(model)
+fitValue<- predict(model)
+
+#Diagnostik dengan eksploratif
+par(mfrow = c(2,2))
+qqnorm(sisaan)
+qqline(sisaan, col = "steelblue", lwd = 2)
+plot(fitValue, sisaan, col = "steelblue", pch = 20, xlab = "Sisaan", ylab = "Fitted Values", main = "Sisaan vs Fitted Values")
+abline(a = 0, b = 0, lwd = 2)
+hist(sisaan, col = "steelblue")
+plot(seq(1,144,1), sisaan, col = "steelblue", pch = 20, xlab = "Sisaan", ylab = "Order", main = "Sisaan vs Order")
+lines(seq(1,144,1), sisaan, col = "red")
+abline(a = 0, b = 0, lwd = 2)
+```
+
+Dua plot di samping kiri digunakan untuk melihat apakah sisaan menyebar normal. Normal Q-Q Plot di atas menunjukkan bahwa sisaan cenderung menyebar normal, serta histogram dari sisaan juga menunjukkan demikian. Selanjutnya, dua plot di samping kanan digunakan untuk melihat autokorelasi. Plot Sisaan vs *Fitted Value* dan Plot Sisaan vs *Order* menunjukkan adanya pola pada sisaan. Untuk lebih lanjut akan digunakan uji formal melihat normalitas sisaan dan plot ACF dan PACF untuk melihat apakah ada autokorelasi atau tidak.
+
+```{r}
+#Melihat Sisaan Menyebar Normal/Tidak
+#H0: sisaan mengikuti sebaran normal
+#H1: sisaan tidak mengikuti sebaran normal
+shapiro.test(sisaan)
+ks.test(sisaan, "pnorm", mean=mean(sisaan), sd=sd(sisaan))
+```
+
+Berdasarkan uji formal Saphiro-Wilk dan Kolmogorov-Smirnov didapatkan nilai *p-value* \> $\alpha$ (5%). Artinya, cukup bukti untuk menyatakan sisaan berdistribusi normal.
+
+```{r}
+#ACF dan PACF identifikasi autokorelasi
+par(mfrow = c(1,2))
+acf(sisaan)
+pacf(sisaan)
+```
+
+Berdasarkan plot ACF dan PACF, terlihat beberapa keluar dari rentang batas serta signifikan. Namun, untuk lebih memastikan akan dilakukan uji formal dengan uji Durbin Watson.
+
+```{r}
+#Deteksi autokorelasi dengan uji-Durbin Watson
+#H0: tidak ada autokorelasi
+#H1: ada autokorelasi
+dwtest(model)
+```
+
+Berdasarkan hasil DW Test, didapatkan nilai $DW = 0.66184$ dan *p-value* = $<2.2\times10^{-6}$. Berdasarkan tabel Durbin-Watson diperoleh nilai $DL = 1.6996$ dan $DU = 1.7559$. Karena nilai DW berada pada selang diantara $0<DW<DL$ atau $0<DW<1.6996$ , maka cukup bukti untuk mengatakan bahwa terdapat autokorelasi positif pada taraf 5%. Selain itu, dengan nilai *p-value* \< 0.05 dapat disimpulkan bahwa tolak H0, cukup bukti mengatakan adanya autokorelasi. Oleh karena itu, diperlukan penangan autokorelasi. Penanganan yang akan digunakan menggunakan dua metode, yaitu Cochrane-Orcutt dan Hildret-Lu.
+
+## Penanganan Autokorelasi
+
+### 1. Metode Cochrane-Orcutt
+
+Penanganan metode Cochrane-Orcutt dapat dilakukan dengan bantuan packages Orcutt pada aplikasi `R` maupun secara manual. Berikut ini ditampilkan cara menggunakan bantuan `library` *packages* `Orcutt`.
+
+```{r}
+#Penanganan Autokorelasi Cochrane-Orcutt
+modelCO<-cochrane.orcutt(model)
+modelCO
+```
+
+Hasil keluaran model setelah dilakukan penanganan adalah sebagai berikut. $$y_i=-881.00149+32.04399x_t+215.77775x_{t-1}$$Hasil juga menunjukkan bahwa nilai DW dan p-value meningkat menjadi $2.06765$ dan $0.6573$. Nilai DW sudah berada pada rentang DU \< DW \< 4-DU atau $1.7559 < DW < 2.2441$. Hal tersebut juga didukung dengan nilai *p-value* \> 0.05, artinya belum cukup bukti menyatakan bahwa sisaan terdapat autokorelasi pada taraf nyata 5%. Untuk nilai $ρ ̂$ optimum yang digunakan adalah $0.8784428$. Nilai tersebut dapat diketahui dengan *syntax* berikut.
+
+```{r}
+#Rho optimum
+rho<- modelCO$rho
+rho
+```
+
+Selanjutnya akan dilakukan transformasi secara manual dengan syntax berikut ini.
+
+```{r}
+#Transformasi Manual
+ActivePower<-dtturbin$ActivePower
+RotorRPM<-dtturbin$RotorRPM
+WindSpeed<-dtturbin$WindSpeed
+
+ActivePower.trans<- ActivePower[-1]-ActivePower[-144]*rho
+ROtorRPM.trans<- RotorRPM[-1]-RotorRPM[-144]*rho
+WindSpeed.trans<- WindSpeed[-1]-WindSpeed[-144]*rho
+modelCOmanual<- lm(ActivePower.trans~ROtorRPM.trans+WindSpeed.trans)
+summary(modelCOmanual)
+```
+
+Hasil model transformasi bukan merupakan model sesungguhnya. Koefisien regresi masih perlu dicari kembali mengikuti $β_0^*=β_0+ρ ̂β_0$ dan $β_1^*=β_1$ , $β_2^*=β_2$ .
+
+```{r}
+#Mencari Penduga Koefisien Regresi setelah Transformasi ke Persamaan Awal
+b0bintang <- modelCOmanual$coefficients[-(2:3)]
+b0 <- b0bintang/(1-rho)
+b1 <- modelCOmanual$coefficients[-c(1,3)]
+b2 <- modelCOmanual$coefficients[-(1:2)]
+b0
+b1
+b2
+```
+
+### 2. Metode Hildreth-Lu
+
+Penanganan kedua adalah menggunakan metode Hildreth-Lu. Metode ini akan mencari nilai SSE terkecil dan dapat dicari secara manual maupun menggunakan packages. Jika menggunakan packages, gunakan `library` *packages* `HORM`.
+
+```{r}
+#Penanganan Autokorelasi Hildreth lu
+# Hildreth-Lu
+hildreth.lu.func<- function(r, model){
+  x1 <- model.matrix(model)[,c(-1,-3)]
+  x2 <- model.matrix(model)[,-(1:2)]
+  y <- model.response(model.frame(model))
+  n <- length(y)
+  t <- 2:n
+  y <- y[t]-r*y[t-1]
+  x1 <- x1[t]-r*x1[t-1]
+  x2 <- x2[t]-r*x2[t-1]
+  
+  return(lm(y~x1+x2))
+}
+
+#Pencariab rho yang meminimumkan SSE
+r <- c(seq(0.3,1.5, by= 0.1))
+tab <- data.frame("rho" = r, "SSE" = sapply(r, function(i){deviance(hildreth.lu.func(i, model))}))
+round(tab, 4)
+```
+
+Pertama-tama akan dicari di mana kira-kira $ρ$ yang menghasilkan SSE minimum. Pada hasil di atas terlihat $ρ$ minimum ketika 0.9. Namun, hasil tersebut masih kurang teliti sehingga akan dicari kembali $ρ$ yang lebih optimum dengan ketelitian yang lebih. Jika sebelumnya jarak antar $ρ$ yang dicari adalah 0.1, kali ini jarak antar $ρ$ adalah 0.001 dan dilakukan pada selang 0.8 sampai dengan 1.1.
+
+```{r}
+#Rho optimal di sekitar 0.9
+rOpt <- seq(0.8,1.1, by= 0.001)
+tabOpt <- data.frame("rho" = rOpt, "SSE" = sapply(rOpt, function(i){deviance(hildreth.lu.func(i, model))}))
+head(tabOpt[order(tabOpt$SSE),])
+
+#Grafik SSE optimum
+par(mfrow = c(1,1))
+plot(tab$SSE ~ tab$rho , type = "l", xlab = "Rho", ylab = "SSE")
+abline(v = tabOpt[tabOpt$SSE==min(tabOpt$SSE),"rho"], lty = 2, col="red",lwd=2)
+text(x=0.878, y=1199970, labels = "rho=0.878", cex = 0.8)
+```
+
+Perhitungan yang dilakukan aplikasi `R` menunjukkan bahwa nilai $ρ$ optimum, yaitu saat SSE terkecil terdapat pada nilai $ρ=0.878$ dan $ρ=0.879$. (hasil SSEnya sama). Hal tersebut juga ditunjukkan pada plot. Selanjutnya, model dapat didapatkan dengan mengevaluasi nilai $ρ$ ke dalam fungsi `hildreth.lu.func`, serta dilanjutkan dengan pengujian autokorelasi dengan uji Durbin-Watson. Namun, setelah pengecekan tersebut tidak lupa koefisien regresi tersebut digunakan untuk transformasi balik. Persamaan hasil transformasi itulah yang menjadi persamaan sesungguhnya.
+
+```{r}
+#Rho optimal di sekitar 0.878 dengan 0.879
+rhoterbaik <- seq(0.878,0.879, by= 0.0000001)
+tabOpt <- data.frame("rho" = rhoterbaik, "SSE" = sapply(rhoterbaik, function(i){deviance(hildreth.lu.func(i, model))}))
+head(tabOpt[order(tabOpt$SSE),])
+```
+
+```{r}
+rhoterbaik = 0.8784428
+#Model terbaik
+modelHL <- hildreth.lu.func(rhoterbaik, model)
+summary(modelHL)
+
+#Transformasi Balik
+cat("y = ", coef(modelHL)[1]/(1-rhoterbaik), "+", coef(modelHL)[2],"x1","+", coef(modelHL)[3],"x2",sep = "")
+```
+
+Setelah dilakukan tranformasi balik, didapatkan model dengan metode Hildreth-Lu sebagai berikut.$$y_i=-881.0015+32.04399x_t+215.7778x_{t-1}$$
+
+```{r}
+#Deteksi autokorelasi
+dwtest(modelHL)
+```
+
+Hasil uji Durbin-Watson juga menunjukkan bawah nilai DW sebesar $2.0677$ berada pada selang daerah tidak ada autokorelasi, yaitu pada rentang DU \< DW \< 4-DU atau $1.7559 < DW < 2.2441$. Hal tersebut juga didukung oleh *p-value* sebesar $0.6573$, di mana *p-value* \> $\alpha$=5%. Artinya tak tolak $H_0$ atau belum cukup bukti menyatakan bahwa ada autokorelasi dalam data nilai daya yang dihasilkan dengan metode Hildreth-Lu pada taraf nyata 5%.
+
+Terakhir, akan dibandingkan nilai SSE dari ketiga metode (metode awal, metode Cochrane-Orcutt, dan Hildreth-Lu).
+
+```{r}
+#Perbandingan
+sseModelawal <- anova(model)$`Sum Sq`[-(1:2)]
+sseModelCO <- anova(modelCOmanual)$`Sum Sq`[-(1:2)]
+sseModelHL <- anova(modelHL)$`Sum Sq`[-(1:2)]
+mseModelawal <- sseModelawal/length(ActivePower)
+mseModelCO <- sseModelCO/length(ActivePower)
+mseModelHL <- sseModelHL/length(ActivePower)
+akurasi <- matrix(c(sseModelawal,sseModelCO,sseModelHL,
+                    mseModelawal,mseModelCO,mseModelHL),nrow=2,ncol=3,byrow = T)
+colnames(akurasi) <- c("Model Awal", "Model Cochrane-Orcutt", "Model Hildreth-Lu")
+row.names(akurasi) <- c("SSE","MSE")
+akurasi
+```
+
+Berdasarkan hasil tersebut dapat diketahui bahwa hasil penanganan autokorelasi dengan metode Cochrane-Orcutt dan Hildreth-Lu memiliki SSE yang sama, sebesar $1199969.124$ dan lebih baik dibandingkan model awal ketika autokorelasi masih terjadi, yaitu sebesar $2986317.52$.
+
+## Simpulan
+
+Autokorelasi yang terdapat pada data ActivePower terjadi akibat adanya korelasi di antara unsur penyusunnya. Indikator ActivePower yang erat hubungannya dengan kecepatan putaran kincir serta kecepatan angin berhembus sangat rawan menjadi penyebab adanya autokorelasi. Adanya autokorelasi menyebabkan model regresi kurang baik karena akan meingkatkan galatnya. Autokorelasi dapat dideteksi secara eksploratif melalui plot sisaan, ACF, dan PACF, serta dengan uji formal Durbin-Watson. Namun, autokorelasi tersebut dapat ditangani dengan metode Cochrane-Orcutt dan Hildreth-Lu. Kedua metode menghasilkan nilai SSE yang sama, artinya keduanya baik untuk digunakan.
+
+## Daftar Pustaka
+
+Buana, S. W., Yunesti, P., Persada, G. B., & Muhyi, A. (2020). Desain turbin angin horisontal untuk area kecepatan angin rendah dengan airfoil S826. *Journal of Science and Applicative Technology*, *4*(2), 86-90.
+
+Effendi, A., Novriyanti, M., Dewi, A. Y., & Putra, A. M. N. (2019). Analisa pengaruh jumlah blade terhadap putaran turbin pada pemanfaatan energi angin di pantai ujung batu muaro penjalinan. *Jurnal Teknik Elektro*, *8*(2), 134-138.
+
+Sifa, A., Badruzamman, B., & Tito, E. (2017, July). Perancangan variasi jumlah blade pada kincir angin hotizontal type untuk pemompa air garam. In *Prosiding Industrial Research Workshop and National Seminar* (Vol. 8, pp. 428-434).
+
+Widyanto, S. W., Wisnugroho, S., & Agus, M. (2018). Pemanfaatan Tenaga Angin Sebagai Pelapis Energi Surya pada Pembangkit Listrik Tenaga Hibrid di Pulau Wangi-Wangi. *Prosiding Semnastek*.
