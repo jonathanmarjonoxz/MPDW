@@ -1,0 +1,264 @@
+---
+title: "Pertemuan 5: Data Tidak Stasioner"
+author: "Jonathan Marjono (G1401211064)"
+date: "2023-09-28"
+output:
+  html_document:
+    theme: yeti
+    toc: true
+    toc_float: true
+  word_document: default
+  pdf_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Penuh
+
+## Library dan Packages
+
+```{r}
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(MASS)
+library(rio)
+```
+
+## Memasukkan Data
+
+```{r}
+dt.set <- import("https://raw.githubusercontent.com/jonathanmarjonoxz/MPDW/main/Responsi1/Data_ProduksiKaretKering.csv")
+```
+
+```{r}
+View(dt.set) #Melihat data
+str(dt.set) #Struktur data
+dim(dt.set) #Dimensi data
+```
+
+## Plot Time Series
+
+```{r}
+#Mengubah agar terbaca sebagai data deret waktu
+dt.set.ts <- ts(dt.set$`Produksi Karet Kering`)
+```
+
+```{r}
+#Cara 1
+ts.plot(dt.set.ts, xlab="Time Period", ylab="Produksi Karet Kering (Ton)", 
+        main = "Time Series Plot")
+points(dt.set.ts)
+```
+
+```{r}
+#Cara 2
+plot_stas <-dt.set.ts |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Time Period") + ylab("Produksi Karet Kering")
+plot_stas
+```
+
+```{r}
+summary(dt.set.ts) #Menampilkan ringkasan data
+```
+
+Plot deret waktu di atas terlihat menunjukkan stasioner dalam rataan,
+ditandai dengan data yang menyebar di sekitar nilai tengahnya (48.24),
+serta tidak stasioner dalam ragam sebab lebar pita yang cenderung
+berbeda. Namun untuk lebih pastinya dapat dibuat plot ACF, uji ADF,
+serta plot Box-Cox.
+
+## Plot ACF
+
+```{r}
+acf(dt.set.ts)
+```
+
+Berdasarkan plot ACF di atas, terlihat bahwa plot ACF data tersebut
+cenderung *tails off* dan membentuk gelombang sinus.
+
+## Uji ADF
+
+$H_0$: Data tidak stasioner dalam rataan
+
+$H_1$: Data stasioner dalam rataan
+
+```{r}
+tseries::adf.test(dt.set.ts)
+```
+
+Berdasarkan uji ADF, didapatkan *p-value* sebesar 0.01 yang lebih kecil
+dari taraf nyata 5% sehingga tolak $H_0$ dan menandakan bahwa data
+stasioner dalam rataan. Hal ini sesuai dengan hasil eksplorasi
+menggunakan plot time series serta plot ACF.
+
+## Plot Boxcox
+
+```{r}
+index <- seq(1:120)
+bc = boxcox(dt.set.ts~index, lambda = seq(-5,4,by=0.01))
+```
+
+```{r}
+#Nilai rounded lambda
+lambda <- bc$x[which.max(bc$y)]
+lambda
+```
+
+```{r}
+#SK
+bc$x[bc$y > max(bc$y) - 1/2 * qchisq(.95,1)]
+```
+
+Gambar di atas menunjukkan nilai *rounded value* $(\lambda)$ optimum
+sebesar -1.36 dan pada selang kepercayaan 95% nilai memiliki batas bawah
+-2.12 dan batas atas -0.63. Selang tersebut tidak memuat nilai satu
+sehingga dapat dikatakan bahwa data produksi karet kering tersebut tidak
+stasioner dalam ragam.
+
+# Partisi Data Bagian 1
+
+## Mempartisi Data
+
+```{r}
+dt.set1 <- dt.set[1:25,-c(1)] |> ts()
+mean(dt.set1)
+var(dt.set1)
+```
+
+## Plot Time Series
+
+```{r}
+dt.set1 |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) +
+  geom_line() + theme_bw() +
+  xlab("Time Period") + ylab("Produksi Karet Kering")
+```
+
+Plot deret waktu di atas menunjukkan bahwa data stasioner dalam rataan,
+ditandai data menyebar disekitar nilai tengahnya (44.75) serta stasioner
+dalam ragam, ditandai dengan lebar pita yang cenderung sama.
+
+## Plot ACF
+
+```{r}
+acf(dt.set1)
+```
+
+Berdasarkan plot ACF di atas, terlihat bahwa plot ACF pada data tersebut
+cenderung *tails off* dan membentuk gelombang sinus.
+
+## Uji ADF
+
+$H_0$: Data tidak stasioner dalam rataan
+
+$H_1$: Data stasioner dalam rataan
+
+```{r}
+tseries::adf.test(dt.set1)
+```
+
+Berdasarkan uji ADF tersebut, didapatkan nilai *p-value* sebesar 0.01
+yang lebih kecil dari taraf nyata 5%, maka akan menolak $H_0$ sehingga
+menandakan bahwa data tersebut stasioner dalam rataan. Hal ini sesuai
+dengan hasil eksplorasi menggunakan plot time series dan plot ACF.
+
+## Plot Boxcox
+
+```{r}
+index <- seq(1:25)
+bc = boxcox(dt.set1~index, lambda = seq(-8,3,by=1))
+```
+
+```{r}
+#Nilai Rounded Lambda
+lambda <- bc$x[which.max(bc$y)]
+lambda
+```
+
+```{r}
+#SK
+bc$x[bc$y > max(bc$y) - 1/2 * qchisq(.95,1)]
+```
+
+Gambar di atas menunjukkan nilai *rounded value* $\lambda$ optimum
+sebesar -2.22 dan pada selang kepercayaan 95% nilai memiliki batas bawah
+-6.44 dan batas atas 1.67. Selang tersebut memuat nilai 1 sehingga dapat
+dikatakan bahwa data potongan bagian 1 tersebut stasioner dalam ragam.
+
+# Partisi Data Bagian 2
+
+## Mempartisi Data
+
+```{r}
+dt.set2 <- dt.set[1:100,-c(1)] |> ts()
+mean(dt.set2)
+var(dt.set2)
+```
+
+## Plot Times Series
+
+```{r}
+dt.set2 |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) +
+  geom_line() + theme_bw() +
+  xlab("Time Period") + ylab("Produksi Karet Kering")
+```
+
+Berdasarkan plot deret waktu di atas menunjukkan bahwa data stasioner
+dalam rataan, ditandai dengan data yang menyebar di sekitar nilai
+tengahnya (47.93), namun tidak stasioner dalam ragam, ditandai dengan
+lebar pita yang cenderung berbeda.
+
+## Plot ACF
+
+```{r}
+acf(dt.set2)
+```
+
+Berdasarkan plot ACF, terlihat bahwa plot ACF pada data tersebut
+cenderung *tails off* dan membentuk gelombang sinus.
+
+## Uji ADF
+
+$H_0$: Data tidak stasioner dalam rataan
+
+$H_1$: Data stasioner dalam rataan
+
+```{r}
+adf.test(dt.set2)
+```
+
+Berdasarkan uji ADF tersebut, didapatkan nilai *p-value* sebesar 0.01
+yang lebih kecil dari taraf nyata 5%. Oleh karena itu tolak $H_0$ serta
+menandakan bahwa data tersebut stasioner dalam rataan. Hal ini sesuai
+dengan plot time series serta plot ACF.
+
+## Plot Boxcox
+
+```{r}
+index <- seq(1:100)
+bc = boxcox(dt.set2~index, lambda = seq(-6,4,by=1))
+```
+
+```{r}
+#Nilai Rounded Lambda
+lambda <- bc$x[which.max(bc$y)]
+lambda
+```
+
+```{r}
+#SK
+bc$x[bc$y > max(bc$y) - 1/2 * qchisq(.95,1)]
+```
+
+Berdasarkan nilai rounded value $\lambda$ optimum sebesar -1.15 dan pada
+selang kepercayaan 95% nilai memiliki batas bawah -1.96 dan batas atas
+0.34. Selang tersebut tidak memuat nilai satu sehingga dapat dikatakan
+bahwa pemotongan data bagian 2 tersebut tidak stasioner dalam ragam.
