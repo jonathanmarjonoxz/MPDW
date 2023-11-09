@@ -1,6 +1,6 @@
 # Forecasting Sea Level on Ancol  🌊
-[![Python3](https://img.shields.io/badge/language-Python3-red)](https://www.python.org/downloads/)
 ![RStudio](https://img.shields.io/badge/RStudio-4285F4?style=for-the-badge&logo=rstudio&logoColor=white)
+[![Python3](https://img.shields.io/badge/language-Python3-red)](https://www.python.org/downloads/)
 ![haha](https://img.shields.io/badge/status-on_progress%20%F0%9F%9A%A7-yellow)
 
 This respitory is subjected for forecasting the sea level based from the web indonesian government provides:
