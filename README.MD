@@ -3,11 +3,11 @@
 ![RStudio](https://img.shields.io/badge/RStudio-4285F4?style=for-the-badge&logo=rstudio&logoColor=white)
 ![haha](https://img.shields.io/badge/status-on_progress%20%F0%9F%9A%A7-yellow)
 
-This shit is subjected for forecasting the sea level based on a god damn sensor on this website:
+This respitory is subjected for forecasting the sea level based from the web indonesian government provides:
 https://poskobanjirdsda.jakarta.go.id/Pages/grafikDataTinggiMukaAir.aspx
 
 
-Disclaimer: **FOR EDUCATIONAL PURPOSE ONLY! The contributors do not assume any responsibility for the use of this model. Also don't do illegal sh w/ this 😠. We ain't risking ourselves to jail 😭.**
+Disclaimer: **FOR EDUCATIONAL PURPOSE ONLY! The contributors do not assume any responsibility for the use of this model.  We also don't claim for the misuse of the models.**
 
 Warning: The result won't be 100% accurate.
 
