@@ -7,7 +7,7 @@ This respitory is subjected for forecasting the sea level based from the web ind
 https://poskobanjirdsda.jakarta.go.id/Pages/grafikDataTinggiMukaAir.aspx
 
 <p align="center">
-<img align="center" src="assets/fumo-touhou-fumo-plush.gif" width="800">
+<img align="center" src="assets/fumo-touhou-fumo-plush.gif" width="600" height="800>
 </p>
 
 
