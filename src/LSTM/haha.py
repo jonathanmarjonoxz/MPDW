@@ -15,6 +15,7 @@ def plottraintest(train, test):
     temp=np.array(list(map(list, zip(train.flatten(), range(1,len(train)+1)))))
     ax.plot(temp[:,1], temp[:,0], c="blue", label="train")
     temp=np.array(list(map(list, zip(test.flatten(), range(len(train)+1,len(train)+len(test)+1)))))
+    temp=np.concatenate(([[train.flatten()[-1],len(train)]], temp),axis=0)
     ax.plot(temp[:,1], temp[:,0], c="orange", label="test")
     ax.legend(loc="lower right")
     ax.set_title("Train & test")
