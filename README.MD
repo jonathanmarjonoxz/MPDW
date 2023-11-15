@@ -6,6 +6,10 @@
 This respitory is subjected for forecasting the sea level based from the web indonesian government provides:
 https://poskobanjirdsda.jakarta.go.id/Pages/grafikDataTinggiMukaAir.aspx
 
+<p align="center">
+<img align="center" src="assets/fumo-touhou-fumo-plush.gif" width="800">
+</p>
+
 
 Disclaimer: **FOR EDUCATIONAL PURPOSE ONLY! The contributors do not assume any responsibility for the use of this model.  We also don't claim for the misuse of the models.**
 
