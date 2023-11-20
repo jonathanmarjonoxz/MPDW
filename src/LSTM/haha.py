@@ -51,3 +51,32 @@ def plot_predicted(df, trainPredict, testPredict, t):
     ax.legend(loc="lower right")
     ax.set_ylabel("Sea level (cm)")
     ax.set_xlabel("period")
+    
+    
+def trainvaltestplot(train, val, test):
+    fig =plt.figure(figsize=(15,8))
+    ax=fig.add_subplot(2,3,1)
+    ax.plot(train, c="blue")
+    ax.set_title("train")
+    ax=fig.add_subplot(2,3,2)
+    ax.plot(validation, c="red")
+    ax.set_title("validation")
+    ax=fig.add_subplot(2,3,3)
+    ax.plot(test, c="orange")
+    ax.set_title("test")
+
+    ax=fig.add_subplot(2,1,2)
+    temp=np.array(list(map(list, zip(train.flatten(), range(1,len(train)+1)))))
+    ax.plot(temp[:,1], temp[:,0], c="blue", label="train")
+
+    temp=np.array(list(map(list, zip(validation.flatten(), range(len(train)+1,len(train)+len(validation)+1)))))
+    temp=np.concatenate(([[train.flatten()[-1],len(train)]], temp),axis=0)
+    ax.plot(temp[:,1], temp[:,0], c="red", label="validation")
+
+    temp1=np.array(list(map(list, zip(test.flatten(), range(int(temp[-1][-1])+1, len(df)+1)))))
+    temp=np.concatenate(([temp[-1]], temp1),axis=0)
+    ax.plot(temp[:,1], temp[:,0], c="orange", label="test")
+
+
+    ax.legend(loc="lower right")
+    ax.set_title("Train, validation, & test")
