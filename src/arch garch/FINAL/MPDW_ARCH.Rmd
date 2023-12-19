@@ -1,0 +1,507 @@
+---
+title: "MPDW_ARCH"
+author: "Jonathan Marjono"
+date: "2023-12-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Library/packages
+```{r}
+library(readxl) #membaca excel
+library(openxlsx)
+library(astsa)
+library(dynlm) #time series regression 
+library(broom) #LM test
+library(FinTS) #ARCH test
+library(forecast)
+library(tseries)
+library(TTR)
+library(TSA)
+library(rugarch)
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(MASS)
+library(aTSA)
+library(graphics)
+```
+
+# Memasukkan data
+```{r}
+#Path and dataset
+path = "D:/Semester 5/MPDW/Project/"
+df_average <- read.csv(paste(path, "Rata Harian.csv", sep=""))[,2:3]
+```
+
+# Plot data time series
+```{r}
+df_average.ts <- ts(df_average$Rataan.Ketinggian.Air.Laut)
+
+plot.ts(df_average.ts, lty=1, lwd=1, xlab="Waktu/Periode", ylab="Rataan Tinggi Permukaan Air", main="Tinggi Permukaan Air Ancol", col= "darkcyan")
+```
+
+
+# Mengecek pola seasonal
+Memeriksa adanya efek seasonal dalam keseluruhan data rataan tinggi permukaan air laut. Prinsipnya: bila ada pola tertentu akan dipakai "Seasonal" effect. Bila ada Seasonal effect maka sebagai contoh ARIMA -> SARIMA, ARIMAX -> SARIMAX. Dengan "S" sebagai faktor season.
+
+```{r}
+seasonplot(df_average.ts,7,
+  main="Ketinggan Air Mingguan", 
+  xlab = "Hari ke-",
+  ylab = "Tinggi laut (cm)", col=rainbow(18),
+  year.labels=TRUE)
+
+seasonplot(df_average.ts,30,
+  main="Ketinggan Air per 30 Hari", 
+  xlab = "Hari ke-",
+  ylab = "Tinggi laut (cm)", col=rainbow(18),
+  year.labels=TRUE)
+
+seasonplot(df_average.ts,60,
+  main="Ketinggan Air per 2 Bulan", 
+  xlab = "Hari ke-",
+  ylab = "Tinggi laut (cm)", col=rainbow(18),
+  year.labels=TRUE)
+```
+Dilakukan pengujian pola musiman untuk memastikan apakah ada data yang memiliki sebuah pola musiman (seasonal). Secara plot time series dengan seasonal plot tidak ditemukan pola tertentu pada data rataan tinggi permukaan air. Oleh karena itu, dapat kita simpulkan bahwa data tidak memiliki pola musiman.
+
+# Pemotongan data ke 15 bulan
+```{r}
+#pakai 15 bulan
+Bulan=15
+temp=-(Bulan*30-1)+length(df_average$Rataan.Ketinggian.Air.Laut)
+df=df_average[temp:length(df_average$Rataan.Ketinggian.Air.Laut),]
+df["Tanggal"]=seq(1,length(df$Tanggal))
+colnames(df)= c("Periode", "Rataan.Ketinggian.Air.Laut")
+df.ts=ts(df$Rataan.Ketinggian.Air.Laut)
+```
+
+# Mengecek pola seasonal kembali
+```{r}
+seasonplot(df.ts,7,
+  main="Ketinggan Air Mingguan", 
+  xlab = "Hari ke-",
+  ylab = "Tinggi laut (cm)", col=rainbow(18),
+  year.labels=TRUE)
+
+seasonplot(df.ts,30,
+  main="Ketinggan Air per 30 Hari", 
+  xlab = "Hari ke-",
+  ylab = "Tinggi laut (cm)", col=rainbow(18),
+  year.labels=TRUE)
+
+seasonplot(df.ts,60,
+  main="Ketinggan Air per 2 Bulan", 
+  xlab = "Hari ke-",
+  ylab = "Tinggi laut (cm)", col=rainbow(18),
+  year.labels=TRUE)
+```
+
+# Membagi data
+Data akan dibagi ke dalam 2 bagian yakni data training dan testing, pembagian data akan dicoba dari memberi garis pada plot untuk mencari splitting terbaik dengan cara berikut ini, namun kali ini diambil 12 bulan vs 3 bulan total 15 bulan.
+```{r}
+#Gambaran pembagian train test
+plot(df.ts)
+#points(df.ts)
+abline(v=360.5, col="red", lty=3, lwd=1) #area training and testing
+
+#Train Test Split
+train=df[1:360,]
+train.ts=ts(train$Rataan.Ketinggian.Air.Laut)
+temp=length(df$Periode)
+test=df[361:temp,]
+test.ts=ts(test$Rataan.Ketinggian.Air.Laut)
+```
+
+# Plot train test
+```{r}
+#Plotting Train and Test
+ggplot() +
+  geom_line(data = test, aes(x = Periode, y = Rataan.Ketinggian.Air.Laut, col = "Test")) +
+   geom_line(data = train, aes(x = Periode, y = Rataan.Ketinggian.Air.Laut, col = "Train"))+ labs(x = "Periode Waktu", y = "Tinggi Permukaan Air", color = "Legend") +
+  scale_colour_manual(name="legend:", breaks = c("Train", "Test"),
+                      values = c("blue", "red")) +
+  theme_bw() + theme(legend.position = "bottom", plot.caption = element_text(hjust=0.5, size=12))
+```
+
+# Uji stasioneritas (train dataset)
+## Dalam rataan
+```{r}
+#Dengan plot
+acf(train.ts , lag.max=30, main = "ACF Plot") #tidak stasioner dlm rataan
+
+#Dengan uji formal
+adf.test(train.ts)
+```
+Dari pengujian secara plot ACF, nampak garis lag menurun secara perlahan yang mengindikasikan dataset train tidak stasioner dalam rataan. Lalu secara uji formal ADF test untuk data train dapat dikatakan data tidak stasioner dalam rataan dengan melihat type 1: no drift no trend yang memiliki p-value > $\alpha$, sehingga tak tolak $H_0$, dengan $H_a$ stationary. Sehingga data juga tidak stasioner.
+ADF test hypotheses:
+$H_0$: The time series is non-stationary.
+$H_A$: The time series is stationary.
+
+
+## Dalam ragam/varians
+```{r}
+n = length(train.ts)
+index <- seq(1:n) #Sampai periode terakhir data train
+bc = boxcox(train.ts~index, lambda = seq(0,6,by=1))
+#Nilai Rounded Lambda
+lambda <- bc$x[which.max(bc$y)]
+best.lambda = bc$x[which(bc$y==max(bc$y))]
+best.lambda
+#SK
+bc$x[bc$y > max(bc$y) - 1/2 * qchisq(.95,1)]
+```
+Pada selang boxcox diatas tidak memuat nilai 1, sehingga tidak stasioner dalam ragam.
+
+# Penanganan stasioneritas
+Dasarnya yang ditangani adalah varians dulu dengan boxcox barulah ke differencing dalam hal rataan.
+
+Namun setelah beberapa attempt diperoleh bahwa beberapa asumsi terlanggar yang salah satunya heteroskedasticity terdeteksi. Sehingga akan digunakan model-ARCH/GARCH. 
+
+Dengan pemanfaatkan ARCH/GARCH permasalahan dalam ragam tidak perlu ditangani karena dapat tertangani secara langsung dari ARCH/GARCH itu sendiri, kalaupun ditangani hasilnya tidak akan jauh berbeda.
+
+Oleh karena kita akan membandingkan metric akurasi prediksi dengan LSTM, dengan model ARCH/GARCH itu sendiri hal yang akan ditangani cukup ketidakstasioneran dalam rataan sebab ARCH/GARCH tidak dapat memberikan solusi akan kasus tersebut. Setelah ditangani barulah kita menyusun model ARCH/GARCH-nya.
+
+"Differencing aja 1x kan mau make ARCH/GARCH juga, nga ush mikirin ragam ragam"
+
+## Differencing 
+```{r}
+dif_ori <- diff(train.ts, differences = 1)
+acf(dif_ori, main = "ACF Plot Differencing 1x")
+plot.ts(dif_ori, xlab='Time Period', ylab='1st Difference', main="Differencing 1x Tinggi Permukaan Air data Train")
+```
+Berdasarkan dari plot diatas, sudah stasioner dalam rataan sebab rataan terlihat menyebar/berada pada nilai tertentu. Kemudian secara plot ACF sudah tidak menurun secara perlahan.
+
+# Model mean terbaik (tentatif)
+```{r}
+acf(dif_ori, lag.max=30) #ARIMA(0,1,1)
+pacf(dif_ori, lag.max=30) #ARIMA(1,1,0) ARIMA(4,1,0)
+eacf(dif_ori) #ARIMA(0,1,1), ARIMA(0,1,2), ARIMA(1,1,2)
+```
+
+# Pemilihan model tentatif
+```{r}
+modelARIMA011 <- Arima(train.ts, order=c(0,1,1), method = "ML")
+modelARIMA110 <- Arima(train.ts, order=c(1,1,0), method = "ML")
+modelARIMA410 <- Arima(train.ts, order=c(4,1,0), method = "ML")
+modelARIMA012 <- Arima(train.ts, order=c(0,1,2), method = "ML")
+modelARIMA112 <- Arima(train.ts, order=c(1,1,2), method = "ML")
+```
+
+```{r}
+Model <- c("ARIMA(0,1,1)", "ARIMA(1,1,0)", "ARIMA(4,1,0)", "ARIMA(0,1,2)","ARIMA(1,1,2)")
+AIC <- round(c(modelARIMA011$aic, modelARIMA110$aic, modelARIMA410$aic, modelARIMA012$aic, modelARIMA112$aic),2)
+
+perbandingan_AIC <- as.data.frame(cbind(Model,AIC))
+perbandingan_AIC
+```
+Akan dipilih model tentatif dengan AIC terkecil yakni ARIMA(1,1,2), lalu diperiksa apakah semua parameternya signifikan.
+
+```{r}
+#Memeriksa signifikansi parameter
+lmtest::coeftest(modelARIMA112)
+```
+Karena semuanya signifikan akan sejauh ini model tentatif terbaiknya adalah ARIMA(1,1,2). Syntax diatas dapat dicobakan untuk model tentatif lainnya untuk memeriksa parameternya signifikan tidak.
+
+# Overfitting
+Konsep ini dipakai dengan meningkatkan ARIMA(p+1,d,q) ataupun ARIMA(p,d,q+1) dari model tentatif terbaik sebelum dilakukan overfitting.
+
+Maka kita akan overfit ARIMA(1,1,2) ke ARIMA(2,1,2) dan ARIMA(1,1,3).
+```{r}
+modelARIMA212 <- Arima(train.ts, order=c(2,1,2), method = "ML")
+modelARIMA113 <- Arima(train.ts, order=c(1,1,3), method = "ML")
+
+Model <- c("ARIMA(1,1,2)", "ARIMA(2,1,2)", "ARIMA(1,1,3)")
+AIC <- round(c(modelARIMA112$aic,modelARIMA212$aic, modelARIMA113$aic),2)
+
+perbandingan_AIC <- as.data.frame(cbind(Model,AIC))
+perbandingan_AIC
+```
+
+```{r}
+#Memeriksa signifikansi parameter
+lmtest::coeftest(modelARIMA212)
+```
+
+```{r}
+lmtest::coeftest(modelARIMA113)
+```
+Karena memiliki AIC yang lebih besar serta ada parameter yang tidak signifikan maka tetap dimanfaatkan ARIMA(1,1,2) sebagai base model untuk ARCH/GARCH.
+
+# Diagnostik model
+```{r}
+#Model ARIMA(1,1,2)
+model2.of <- Arima(train.ts, order=c(1,1,2),method="ML")
+summary(model2.of) #AIC=2277.54
+
+#Signifikansi koefisien
+lmtest::coeftest(model2.of) #Seluruh parameter signifikan
+tsdiag(model2.of) #sisaan terlihat acak dan bebas
+checkresiduals(model2.of)
+autoplot(model2.of) #model stable, tidak ada titik yang diluar untuk AR roots maupun MA roots
+```
+
+```{r}
+sisaan.da <- model2.of$residuals 
+#Eksplorasi dengan plot
+sisaan.da <- model2.of$residuals 
+par(mfrow=c(2,2)) 
+qqnorm(sisaan.da) 
+qqline(sisaan.da, col = "blue", lwd = 2) 
+plot(c(1:length(sisaan.da)),sisaan.da) 
+acf(sisaan.da) 
+pacf(sisaan.da) 
+par(mfrow = c(1,1))
+```
+
+```{r}
+#Uji Formal
+#1) Sisaan Menyebar Normal
+shapiro.test(sisaan.da)
+ks.test(sisaan.da,"pnorm")
+jarque.bera.test(sisaan.da) #tak tolak H0 > sisaan menyebar normal
+
+#2) Sisaan saling bebas/tidak ada autokorelasi
+Box.test(sisaan.da, type = "Ljung")  #tak tolak H0 > sisaan saling bebas
+
+#3) Sisaan homogen
+Box.test((sisaan.da)^2, type = "Ljung")  #tak tolak H0 > sisaan homogen
+
+#4) Nilai tengah sisaan sama dengan nol
+t.test(sisaan.da, mu = 0, conf.level = 0.95)  #tak tolak h0 > nilai tengah sisaan sama dengan 0
+```
+$H_0$ : Sisaan menyebar normal
+$H_1$ : Sisaan tidak menyebar normal
+Tolak $H_0$, Sisaan tidak menyebar normal (terlanggar)
+
+$H_0$ : Sisaan saling bebas
+$H_1$ : Sisaan tidak tidak saling bebas
+Tak tolak $H_0$, Sisaan saling bebas (terpenuhi)
+
+$H_0$ : Ragam sisaan homogen
+$H_1$ : Ragam sisaan tidak homogen
+Tolak $H_0$, Sisaan tidak homogen (terlanggar)
+
+$H_0$ : nilai tengah sisaan sama dengan 0
+$H_1$ : nilai tengah sisaan tidak sama dengan 0
+Tak tolak $H_0$, Nilai tengah sisaan sama dengan nol (terpenuhi)
+
+# ARCH-GARCH
+## Uji sisaan Mean model
+```{r}
+sisaan <- model2.of$residuals
+e_topi <- ts(sisaan)
+plot.ts(e_topi, main = "Plot Sisaan")
+
+e_topisq <- ts(sisaan^2)
+plot.ts(e_topisq)
+```
+Sisaan belum memenuhi asumsi kehomogenan, berdasarkan plot.
+
+```{r}
+acf(e_topi, main = "Plot ACF")
+pacf(e_topi, main = "Plot PACF")
+```
+Plot ACF serta PACF sisaan tidak menunjukkan adanya cut off pada lag tertentu, sehingga pemodelan ARIMA masih kurang tepat jika diterapkan pada data tinggi permukaan air yang digunakan
+
+```{r}
+acf(e_topisq) 
+```
+
+# Uji Efek ARCH
+Dapat dilakukan dengan uji Langrange Multiplier atau tes pengganda skor
+Berikut Hasil uji ARCH-LM untuk 10 lag pertama
+```{r}
+for (i in 1:10) {
+  ArchTest <- ArchTest(sisaan.da, lags=i, demean=TRUE)
+  cat("P Value LM Test lag ke", i,"adalah" , ArchTest$p.value, "\n") }
+```
+
+Pada lag 1-7 memiliki nilai-p lebih kecil dari taraf nyata 5%, sehingga tolak H0. Hal ini berarti bahwa data yang digunakan mengandung efek heterokedastik sehingga metode ARCH-GARCH diperlukan untuk pemodelan ARIMA(1,1,2) dalam peramalan.
+
+Dalam data deret waktu dikenal uji ARCH Langrange Multiplier atau ARCH-LM test, dengan hipotesisnya
+$H_0$: residual model tidak mengandung efek ARCH
+$H_1$: residual model mengandung efek ARCH
+
+# Model ARCH-GARCH
+```{r}
+diff_train_data <- dif_ori
+```
+
+## Model GARCH
+### GARCH(1,1)
+```{r}
+garchSpec11 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit11 <- ugarchfit(spec=garchSpec11, data=diff_train_data)
+coef(garchFit11)
+```
+
+```{r}
+garchFit11 #AIC = 6.2782
+#Ada param nga signifikan, LM Test aman
+```
+
+### GARCH(1,2)
+```{r}
+garchSpec12 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,2)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit12 <- ugarchfit(spec=garchSpec12, data=diff_train_data)
+coef(garchFit12)
+```
+
+```{r}
+garchFit12 #AIC=6.2646
+#Ada param nga signifikan, LM Test aman
+```
+
+### GARCH(2,1)
+```{r}
+garchSpec21 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(2,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit21 <- ugarchfit(spec=garchSpec21, data=diff_train_data)
+coef(garchFit21)
+```
+
+```{r}
+garchFit21 #AIC=6.2838
+#Ada param nga signifikan, LM Test aman
+```
+
+### GARCH(3,1)
+```{r}
+garchSpec31 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(3,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit31 <- ugarchfit(spec=garchSpec31, data=diff_train_data)
+coef(garchFit31)
+```
+
+```{r}
+garchFit31 #AIC=6.2602
+#Ada param nga signifikan, LM Test aman
+```
+
+Karena dari beberapa trial GARCH ada parameter yang tidak signifikan, sudah dicoba sampai GARCH(6,1) serta beberapa kombinasinya. Maka akan dicoba model yang lebih sederhana dengan efek ARCH.
+
+### ARCH(1)
+```{r}
+arch1 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,0)),
+                          mean.model=list(armaOrder=c(1,2)))
+archFit1 <- ugarchfit(spec=arch1, data=diff_train_data)
+coef(archFit1)
+
+archFit1 #AIC=6.2681
+#Seluruh param sig.
+#LM Test aman
+```
+
+### ARCH(2)
+```{r}
+arch2 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(2,0)),
+                          mean.model=list(armaOrder=c(1,2)))
+archFit2 <- ugarchfit(spec=arch2, data=diff_train_data)
+coef(archFit2)
+
+archFit2 #AIC= 6.2757
+#Seluruh param sig.
+#LM Test aman
+```
+
+Sehingga karena model ARCH menghasilkan seluruh parameter signifikan, serta sign. bias not signifikan maka akan dipilih model dengan AIC terkecil. Sehingga dapat diperoleh ARCH(1) dengan AIC terkecil, sign. bias not sig., seluruh parameter signifikan, serta LM test yang menolak $H_0$ dengan kata lain ragam sudah homogen dengan ARCH(1).
+
+```{r}
+resarch1 <- archFit1@fit$residuals
+resarch1.ts <- ts(resarch1)
+plot.ts(resarch1) #Ragam sudah tidak heterogen
+```
+
+# Peramalan dengan ARIMA
+```{r}
+ramalan.da <- forecast::forecast(model2.of, h = 90) 
+data.ramalan.da <- ramalan.da$mean
+plot(ramalan.da)
+
+test_pred_ARIMA <- predict(model2.of, n.ahead = length(test$Rataan.Ketinggian.Air.Laut))$pred
+
+perbandingan <- rbind(test.ts,test_pred_ARIMA)
+
+# Simulated data
+actual_values <- test.ts
+predicted_values <- as.matrix(test_pred_ARIMA)
+
+# Calculate RMSE
+rmse <- sqrt(mean((actual_values - predicted_values)^2))
+
+# Calculate MAPE
+mape <- mean(abs((actual_values - predicted_values) / actual_values)) * 100
+
+
+# Create an evaluation matrix
+evaluation_matrix <- data.frame(
+  RMSE = rmse,
+  MAPE = mape
+)
+
+# Print the evaluation matrix
+print(evaluation_matrix)
+
+#Tidak perlu differencing invers karena data yang dipake pada pemodelan ARIMA merupakan dari train.ts, kecuali yang dipakai dif_ori (diff_train_data)
+```
+
+# Peramalan dengan efek ARCH(1)
+```{r}
+forecast_arch <- ugarchforecast(archFit1, diff_train_data, 90)
+plot(forecast_arch, which=1)
+
+#Wajib diff invers, karena dipakainya data diff_train_data yang udh ke difference
+pt_2 <- train.ts[360] #nilai akhir data latih
+hasil.forc.Diff2 <- forecast_arch@forecast[["seriesFor"]]
+hasil2 <- diffinv(hasil.forc.Diff2, differences = 1) + pt_2
+hasil2
+
+perbandingan_arch <- data.frame("Aktual" = test.ts,
+                           "Ramalan" = hasil2[-1])
+
+metric <- forecast::accuracy(ts(hasil2[-1]), ts(test.ts))
+
+# Create an evaluation matrix
+evaluation_matrix <- data.frame(
+  RMSE = metric[2],
+  MAPE = metric[5]
+)
+
+# Print the evaluation matrix
+print(evaluation_matrix)
+
+
+actual_values <- test.ts
+predicted_values <- hasil2[-1]
+```
+
+# Plot forecast ARCH(1)
+```{r}
+gaktaumales=data.frame(periode= seq(length(train$Periode),450),
+           predicted=c(train$Rataan.Ketinggian.Air.Laut[length(train$Rataan.Ketinggian.Air.Laut)], predicted_values))
+
+ggplot() +
+  geom_line(data = train, aes(x = Periode, y = Rataan.Ketinggian.Air.Laut, col = "Train"))+
+  geom_line(data = gaktaumales, aes(x = periode, y = predicted, col = "Forecasted")) +
+  scale_colour_manual(name="legend:", breaks = c("Train", "Forecasted"),
+                      values = c("blue", "red")) +
+  theme_bw() + theme(legend.position = "bottom", plot.caption = element_text(hjust=0.5, size=12))
+```
+```{r}
+mean <- mean(predicted_values)
+min <- min(predicted_values)
+max <- max(predicted_values)
+judul <- c("min","mean","max")
+value <- round(c(min,mean,max),4)
+serangkai <- as.data.frame(cbind(judul,value))
+serangkai
+```
+
+
