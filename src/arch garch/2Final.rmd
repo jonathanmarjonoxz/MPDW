@@ -1,0 +1,969 @@
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+#Modules
+library(readxl)
+library(openxlsx)
+library(astsa)
+library(dynlm) #Time series regression 
+library(broom) #LM test, table presentations
+library(FinTS) #For ARCH test
+library(forecast)
+library(tseries)
+library(TTR)
+library(TSA)
+library(graphics)
+library(portes)
+library(tseries) #For unit root test
+library(car) #For robust standard errors
+library(rugarch) #For Garch Models
+library(vars) #For using VAR
+library(nlWaldTest) # For testing non-linear wald test
+library(lmtest) #For BP test
+library(ggplot2)
+library(tsibble)
+library(tseries)
+library(MASS)
+library(forecast)
+library(aTSA)
+library(grid)
+library(gridExtra)
+library(magrittr)
+library(knitr)
+library(sandwich)
+library(tsbox)
+library(stats)
+library(zoo)
+library(vrtest)
+library(fGarch)
+library(aTSA)
+library(FinTS) 
+library(lmtest)
+library(forecast)
+library(TSA)
+library(tseries)
+library(xts)
+library(readxl)
+library(tidyverse)
+```
+
+```{r}
+#Path and dataset
+path = "D:/Semester 5/MPDW/Project/"
+df_average <- read.csv(paste(path, "Rata Harian.csv", sep=""))[,2:3]
+```
+
+```{r}
+#pakai 15 bulan
+Bulan=15
+temp=-(Bulan*30-1)+length(df_average$Rataan.Ketinggian.Air.Laut)
+df=df_average[temp:length(df_average$Rataan.Ketinggian.Air.Laut),]
+df["Tanggal"]=seq(1,length(df$Tanggal))
+colnames(df)= c("Periode", "Rataan.Ketinggian.Air.Laut")
+df.ts=ts(df$Rataan.Ketinggian.Air.Laut)
+```
+
+```{r}
+#Train Test Split
+train=df[1:360,]
+train.ts=ts(train$Rataan.Ketinggian.Air.Laut)
+temp=length(df$Periode)
+test=df[361:temp,]
+test.ts=ts(test$Rataan.Ketinggian.Air.Laut)
+```
+
+```{r}
+#Plotting Train and Test
+ggplot() +
+  geom_line(data = test, aes(x = Periode, y = Rataan.Ketinggian.Air.Laut, col = "Test")) +
+   geom_line(data = train, aes(x = Periode, y = Rataan.Ketinggian.Air.Laut, col = "Train"))+ labs(x = "Periode Waktu", y = "Tinggi Air", color = "Legend") +
+  scale_colour_manual(name="legend:", breaks = c("Train", "Test"),
+                      values = c("blue", "red")) +
+  theme_bw() + theme(legend.position = "bottom", plot.caption = element_text(hjust=0.5, size=12))
+```
+
+#Uji stasioneritas
+
+```{r}
+#Dengan plot
+acf(train.ts , lag.max=30, main = "ACF Plot") #tidak stasioner dlm rataan
+```
+
+```{r}
+#Uji Formal
+adf.test(train.ts)
+```
+
+#Box cox
+
+```{r}
+n = length(train.ts)
+index <- seq(1:n) #Sampai periode terakhir data train
+bc = boxcox(train.ts~index, lambda = seq(0,6,by=1))
+#Nilai Rounded Lambda
+lambda <- bc$x[which.max(bc$y)]
+best.lambda = bc$x[which(bc$y==max(bc$y))]
+best.lambda
+#SK
+bc$x[bc$y > max(bc$y) - 1/2 * qchisq(.95,1)]
+```
+
+#Penanganan ##BOX COX, DIFF
+
+```{r}
+ # d <- 1
+ # diff_train_data <- diff(train.ts, differences = d)
+# lambda <- BoxCox.lambda(train.ts)
+# transformed_train_data <- BoxCox(train.ts, lambda)
+
+# dif_ori <- diff(transformed_train_data, differences = 1)
+
+dif_ori <- diff(train.ts, differences = 1)
+```
+
+```{r}
+acf(dif_ori, main = "ACF Plot Differencing 1x")
+```
+
+```{r}
+plot.ts(dif_ori, xlab='Time Period', ylab='1st Difference', main="Differencing 1x Tinggi Permukaan Air data Train")
+```
+
+#Model Terbaik
+
+```{r}
+acf(dif_ori, lag.max=30) #ARIMA(0,1,1)
+pacf(dif_ori, lag.max=30) #ARIMA(1,1,0) ARIMA(4,1,0)
+eacf(dif_ori) #ARIMA(0,1,1), ARIMA(0,1,2), ARIMA(1,1,2)
+```
+
+# ARIMA(p,d,q)
+
+```{r}
+modelARIMA <- Arima(train.ts, order=c(1,1,3), method = "ML")
+summary(modelARIMA) #6035, 6041, 6035.9,6035.32, 6021.4 
+lmtest::coeftest(modelARIMA)
+```
+
+# ARIMA(1,1,2)
+
+```{r}
+model2.of <- Arima(train.ts, order=c(1,1,2),method="ML")
+summary(model2.of) #AIC=2277.54 scale to 6021.4
+
+#Signifikansi koefisien
+lmtest::coeftest(model2.of) #Seluruh parameter signifikan
+tsdiag(model2.of) #sisaan terlihat acak dan bebas
+checkresiduals(model2.of)
+autoplot(model2.of) #model stable, tidak ada titik yang diluar
+```
+
+##Get predicted train and test
+
+```{r}
+# train_pred <- predict(model2.of, n.ahead = length(train$Rataan.Ketinggian.Air.Laut))$pred
+# 
+# test_pred <- predict(model2.of, n.ahead = length(test$Rataan.Ketinggian.Air.Laut))$pred
+
+
+ramalan.da <- forecast::forecast(model2.of, h = 90) 
+ramalan.da
+data.ramalan.da <- ramalan.da$mean
+plot(ramalan.da)
+
+pt_1 <- train.ts[360] #nilai akhir data latih
+hasil.forc.Diff <- data.ramalan.da
+hasil <- diffinv(hasil.forc.Diff, differences = 1) + pt_1
+plot(hasil)
+
+#has.1 sama hasilnta dengan: cumsum(c(pt_1,hasil.forc.Diff))
+ts.plot(train.ts,hasil.balik.trans)
+
+
+test_pred <- predict(model2.of, n.ahead = length(test$Rataan.Ketinggian.Air.Laut))$pred
+
+perbandingan <- rbind(test.ts,test_pred)
+```
+
+# Highliht3
+
+```{r}
+# Simulated data
+actual_values <- test.ts
+predicted_values <- as.matrix(test_pred)
+
+# Calculate RMSE
+rmse <- sqrt(mean((actual_values - predicted_values)^2))
+
+# Calculate MAPE
+mape <- mean(abs((actual_values - predicted_values) / actual_values)) * 100
+
+
+# Create an evaluation matrix
+evaluation_matrix <- data.frame(
+  RMSE = rmse,
+  MAPE = mape
+)
+
+# Print the evaluation matrix
+print(evaluation_matrix)
+```
+
+# Diagnostik Model
+
+```{r}
+#Eksplorasi dengan plot
+sisaan.da <- model2.of$residuals 
+par(mfrow=c(2,2)) 
+qqnorm(sisaan.da) 
+qqline(sisaan.da, col = "blue", lwd = 2) 
+plot(c(1:length(sisaan.da)),sisaan.da) 
+acf(sisaan.da) 
+pacf(sisaan.da) 
+par(mfrow = c(1,1))
+```
+
+```{r}
+#Uji Formal
+#1) Sisaan Menyebar Normal
+shapiro.test(sisaan.da)
+ks.test(sisaan.da,"pnorm")
+jarque.bera.test(sisaan.da) #Sisaan tidak menyebar normal
+  
+#2) Sisaan saling bebas/tidak ada autokorelasi
+Box.test(sisaan.da, type = "Ljung")  #tak tolak H0 > sisaan saling bebas
+
+#3) Sisaan homogen
+Box.test((sisaan.da)^2, type = "Ljung")  #Tolak H0 > Sisaan heterogen
+
+#4) Nilai tengah sisaan sama dengan nol
+t.test(sisaan.da, mu = 0, conf.level = 0.95)  #tak tolak h0 > nilai tengah sisaan sama dengan 0
+```
+
+$H_0$ : Sisaan menyebar normal $H_1$ : Sisaan tidak menyebar normal
+Tolak, Sisaan tidak menyebar normal (terlanggar)
+
+$H_0$ : Sisaan saling bebas $H_1$ : Sisaan tidak tidak saling bebas Tak
+tolak, Sisaan saling bebas (terpenuhi)
+
+$H_0$ : Ragam sisaan homogen $H_1$ : Ragam sisaan tidak homogen Tolak,
+Sisaan tidak homogen (terlanggar)
+
+$H_0$ : nilai tengah sisaan sama dengan 0 $H_1$ : nilai tengah sisaan
+tidak sama dengan 0 Tak tolak, Nilai tengah sisaan sama dengan nol
+(terpenuhi)
+
+# ACRH-GARCH
+
+## Uji sisaan Mean model
+
+```{r}
+sisaan <- model2.of$residuals
+e_topi <- ts(sisaan)
+plot.ts(e_topi, main = "Plot Sisaan")
+
+e_topisq <- ts(sisaan^2)
+plot.ts(e_topisq)
+```
+
+```{r}
+acf(e_topi, main = "Plot ACF")
+pacf(e_topi, main = "Plot PACF")
+```
+
+```{r}
+acf(e_topisq) 
+```
+
+## Uji Efek ARCH
+
+```{r}
+for (i in 1:10) {
+  ArchTest <- ArchTest(sisaan.da, lags=i, demean=TRUE)
+  cat("P Value LM Test lag ke", i,"adalah" , ArchTest$p.value, "\n") }
+```
+
+P-val signifikan hanya di lag 1-7, menunjukkan bahwa asumsi
+heteroskedastisitas ARCH signifikan.
+
+```{r}
+#Menentukan model volatilitas jika efek ARCH secara statistik signifikan
+#Pendugaan model ARCH/GARCH dengan function garch secara simultan
+marina.arch1 <- garch(train.ts,c(1,2)) #ordo ARCH(1)
+```
+
+```{r}
+mariniarch1 <- summary(marina.arch1)
+marinaarch1
+```
+
+hypotheses for the Jarque-Bera test in the context of a GARCH model: H0:
+The residuals (or standardized residuals) from the GARCH model follow a
+normal distribution.
+
+H1: The residuals (or standardized residuals) from the GARCH model do
+not follow a normal distribution. -\> THIS
+
+Box-Ljung = theres autocol in lags (lag tdk saling bebas), true evidence
+autocorrelation in the residuals
+
+```{r}
+#str(sbydarch)
+plot(marina.arch1) 
+```
+
+```{r}
+hist(marinaarch1$residuals)
+```
+
+```{r}
+qqnorm(marinaarch1$residuals)
+qqline(marinaarch1$residuals, col = "red", lwd = 2)
+```
+
+## Model GARCH
+
+```{r}
+# Contoh spesifikasi model ARCH(1)
+spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 0)),
+                   mean.model = list(armaOrder = c(0, 0)))
+
+# Estimasi model ARCH
+arch_model <- ugarchfit(spec, data = your_data_here)
+
+```
+
+### GARCH(1,1)
+
+```{r}
+garchSpec11 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit11 <- ugarchfit(spec=garchSpec11, data=diff_train_data)
+coef(garchFit11)
+```
+
+```{r}
+garchFit11 #AIC= 6.2693, sign. not sig. 
+```
+
+### GARCH(1,2)
+
+```{r}
+garchSpec12 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,2)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit12 <- ugarchfit(spec=garchSpec12, data=diff_train_data)
+coef(garchFit12)
+```
+
+```{r}
+garchFit12 #AIC=6.2606, sign not sig. 
+```
+
+### GARCH(1,3)
+
+```{r}
+garchSpec13 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,3)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit13 <- ugarchfit(spec=garchSpec13, data=diff_train_data)
+coef(garchFit13)
+```
+
+```{r}
+garchFit13 #AIC=6.2661,bias not sig.
+```
+
+### GARCH(1,4)
+
+```{r}
+garchSpec14 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,4)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit14 <- ugarchfit(spec=garchSpec14, data=diff_train_data)
+coef(garchFit14)
+```
+
+```{r}
+garchFit14 #AIC=6.2788, bias not sig.
+```
+
+GARCH(1,2)
+
+### GARCH(2,1)
+
+```{r}
+garchSpec21 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(2,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit21 <- ugarchfit(spec=garchSpec21, data=diff_train_data)
+coef(garchFit21)
+```
+
+```{r}
+garchFit21 #AIC=6.2749, bias not sig.
+```
+
+### GARCH(2,2)
+
+```{r}
+garchSpec22 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(2,2)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit22 <- ugarchfit(spec=garchSpec22, data=diff_train_data)
+coef(garchFit22)
+```
+
+```{r}
+garchFit22 #AIC=6.2661
+```
+
+### GARCH(2,3)
+
+```{r}
+garchSpec23 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(2,3)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit23 <- ugarchfit(spec=garchSpec23, data=diff_train_data)
+coef(garchFit23)
+```
+
+```{r}
+garchFit23 #AIC=6.2717
+```
+
+### GARCH(2,4)
+
+```{r}
+garchSpec24 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(2,4)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit24 <- ugarchfit(spec=garchSpec24, data=diff_train_data)
+coef(garchFit24)
+```
+
+```{r}
+garchFit24
+```
+
+### GARCH(3,1)
+
+```{r}
+garchSpec31 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(3,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit31 <- ugarchfit(spec=garchSpec31, data=diff_train_data)
+coef(garchFit31)
+```
+
+```{r}
+garchFit31 #AIC=6.2576
+```
+
+### GARCH(3,2)
+
+```{r}
+garchSpec32 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(3,2)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit32 <- ugarchfit(spec=garchSpec32, data=diff_train_data)
+coef(garchFit32)
+```
+
+```{r}
+garchFit32 #AIC=6.2623
+```
+
+### GARCH(3,3)
+
+```{r}
+garchSpec33 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(3,3)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit33 <- ugarchfit(spec=garchSpec33, data=diff_train_data)
+coef(garchFit33)
+```
+
+```{r}
+garchFit33 #AIC=6.2679
+```
+
+### GARCH(4,1)
+
+```{r}
+garchSpec41 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(4,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit41 <- ugarchfit(spec=garchSpec41, data=diff_train_data)
+coef(garchFit41)
+```
+
+```{r}
+garchFit41 #AIC=6.2621
+```
+
+### GARCH(5,1)
+
+```{r}
+garchSpec51 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(5,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit51 <- ugarchfit(spec=garchSpec51, data=diff_train_data)
+coef(garchFit51)
+```
+
+```{r}
+garchFit51 #AIC=6.2652
+```
+
+### GARCH(6,1)
+
+```{r}
+garchSpec61 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(6,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+garchFit61 <- ugarchfit(spec=garchSpec61, data=diff_train_data)
+coef(garchFit61)
+```
+
+```{r}
+garchFit61 #AIC=6.3137
+```
+
+### ARCH(1)
+```{r}
+arch1 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,0)),
+                          mean.model=list(armaOrder=c(1,2)))
+archFit1 <- ugarchfit(spec=arch1, data=diff_train_data)
+coef(archFit1)
+
+archFit1
+```
+# Forecast ARCH(1)
+```{r}
+forecast_arch <- ugarchforecast(archFit1, diff_train_data, 90)
+plot(forecast_arch, which=1)
+
+pt_2 <- train.ts[360]
+hasil.forc.Diff2 <- forecast_arch@forecast[["seriesFor"]]
+hasil2 <- diffinv(hasil.forc.Diff2, differences = 1) + pt_2
+hasil2
+
+perbandingan_arch <- data.frame("Aktual" = test.ts,
+                           "Ramalan" = hasil2[-1])
+
+
+forecast::accuracy(ts(hasil2[-1]), ts(test.ts))
+```
+
+```{r}
+# Simulated data
+actual_values <- test.ts
+predicted_values <- hasil2[-1]
+
+# Calculate RMSE
+rmse <- sqrt(mean((actual_values - predicted_values)^2))
+
+# Calculate MAPE
+mape <- mean(abs((actual_values - predicted_values) / actual_values)) * 100
+
+
+# Create an evaluation matrix
+evaluation_matrix <- data.frame(
+  RMSE = rmse,
+  MAPE = mape
+)
+
+# Print the evaluation matrix
+print(evaluation_matrix)
+```
+
+# Final Plot
+```{r}
+gaktaumales=data.frame(periode= seq(length(train$Periode),450),
+           predicted=c(train$Rataan.Ketinggian.Air.Laut[length(train$Rataan.Ketinggian.Air.Laut)], predicted_values))
+
+ggplot() +
+  geom_line(data = train, aes(x = Periode, y = Rataan.Ketinggian.Air.Laut, col = "Train"))+
+  geom_line(data = gaktaumales, aes(x = periode, y = predicted, col = "Forecasted")) +
+  scale_colour_manual(name="legend:", breaks = c("Train", "Forecasted"),
+                      values = c("blue", "red")) +
+  theme_bw() + theme(legend.position = "bottom", plot.caption = element_text(hjust=0.5, size=12))
+```
+
+
+### ARCH(2)
+```{r}
+arch2 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(2,0)),
+                          mean.model=list(armaOrder=c(1,2)))
+archFit2 <- ugarchfit(spec=arch2, data=diff_train_data)
+coef(archFit2)
+
+archFit2
+```
+
+## Uji Diagnostik GARCH(0,1)
+
+```{r}
+marina.garch12 <- garch(train.ts,c(0,1)) #ordo ARCH(1)
+```
+
+```{r}
+marinagarch12 <- summary(marina.garch12)
+marinagarch12
+```
+
+## Uji Diganostik GARCH(3,1)
+
+```{r}
+marina.garch31 <- garch(train.ts,c(3,1)) #ordo ARCH(3)
+```
+
+```{r}
+marinagarch31 <- summary(marina.garch31)
+marinagarch31
+```
+
+```{r}
+#str(sbydarch)
+plot(marina.garch12) 
+```
+
+## Peramalan
+
+```{r}
+## ramalan dari data train
+model <-Arima(train.ts,order=c(1,1,2))
+ramalan_model<-forecast::forecast(model,h=90)
+plot(ramalan_model)
+```
+
+```{r}
+train.ts
+test.ts
+```
+
+```{r}
+hasil_perbandingan<- as.data.frame(cbind(test.ts,ramalan_model$fitted))
+hasil_perbandingan
+```
+
+# Highlight
+
+```{r}
+actual_values <- test.ts
+predicted_values <- ramalan_model$fitted
+
+# Evaluation metrics
+mae <- mean(abs(actual_values - predicted_values))
+mse <- mean((actual_values - predicted_values)^2)
+rmse <- sqrt(mse)
+# Calculate MAPE
+mape <- mean(abs((actual_values - predicted_values) / actual_values)) * 100
+
+# Calculate residuals
+residuals <- actual_values - predicted_values
+
+# Calculate AIC and BIC
+n <- length(actual_values)
+k <- 2  # Number of parameters in the model (change accordingly)
+aic <- n * log(mse) + 2 * k
+bic <- n * log(mse) + k * log(n)
+
+# Calculate Mean Squared Deviation (MSD)
+msd <- mean(residuals^2)
+
+# Calculate Mean Absolute Deviation (MAD)
+mad <- mean(abs(residuals))
+
+# Create an evaluation matrix
+evaluation_matrix <- data.frame(
+  MAE = mae,
+  MSE = mse,
+  RMSE = rmse,
+  MAPE = mape,
+  AIC = aic,
+  BIC = bic,
+  MSD = msd,
+  MAD = mad
+)
+
+# Print the evaluation matrix
+print(evaluation_matrix)
+```
+
+### Model GARCH(1,2)
+
+```{r}
+# GARCH(1,2)
+m.12 = garch(diff_train_data,order=c(1,2),trace =FALSE)
+summary(m.12)
+```
+
+### ARIMA(1,1,3)-GARCH(1,2)
+
+```{r}
+#ARIMA(1,1,3)+GARCH(1,2)
+model12<-ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,2)), 
+                  mean.model = list(armaOrder = c(1, 3), include.mean = TRUE), 
+                  distribution.model = "norm")
+                  
+m.12<-ugarchfit(spec=model12,data=diff_train_data, out.sample = 100)
+plot(m.12,which="all")
+```
+
+```{r}
+m.12
+```
+
+```{r}
+forc = ugarchforecast(m.12, data = diff_train_data, n.ahead = 90, n.roll =10)
+print(forc)
+```
+
+```{r}
+plot(forc, which= "all")
+```
+
+```{r}
+garchSpec12 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,2)),
+                          mean.model=list(armaOrder=c(1,2)))
+
+garch_fit <- ugarchfit(spec = garchSpec12, data = train.ts) 
+
+garch_forecast <- ugarchforecast(garch_fit, n.ahead = 90)  # Change '10' to the number of periods you want to forecast
+garch12forecast <- garch_forecast@forecast$seriesFor
+
+
+hasil_perbandingan<- as.data.frame(cbind(test.ts,garch12forecast))
+hasil_perbandingan
+```
+
+#Highlight2
+
+```{r}
+actual_values <- test.ts
+predicted_values <- garch12forecast
+
+# Evaluation metrics
+mae <- mean(abs(actual_values - predicted_values))
+mse <- mean((actual_values - predicted_values)^2)
+rmse <- sqrt(mse)
+# Calculate MAPE
+mape <- mean(abs((actual_values - predicted_values) / actual_values)) * 100
+
+# Calculate residuals
+residuals <- actual_values - predicted_values
+
+# Calculate AIC and BIC
+n <- length(actual_values)
+k <- 2  # Number of parameters in the model (change accordingly)
+aic <- n * log(mse) + 2 * k
+bic <- n * log(mse) + k * log(n)
+
+# Calculate Mean Squared Deviation (MSD)
+msd <- mean(residuals^2)
+
+# Calculate Mean Absolute Deviation (MAD)
+mad <- mean(abs(residuals))
+
+# Create an evaluation matrix
+evaluation_matrix <- data.frame(
+  MAE = mae,
+  MSE = mse,
+  RMSE = rmse,
+  MAPE = mape,
+  AIC = aic,
+  BIC = bic,
+  MSD = msd,
+  MAD = mad
+)
+
+# Print the evaluation matrix
+print(evaluation_matrix)
+```
+
+```{r}
+garchSpec13 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,3)),
+                          mean.model=list(armaOrder=c(1,2)))
+
+garch_fit <- ugarchfit(spec = garchSpec13, data = train.ts) 
+
+garch_forecast <- ugarchforecast(garch_fit, n.ahead = 90)  # Change '10' to the number of periods you want to forecast
+garch13forecast <- garch_forecast@forecast$seriesFor
+
+
+hasil_perbandingan<- as.data.frame(cbind(test.ts,garch13forecast))
+hasil_perbandingan
+```
+
+```{r}
+actual_values <- test.ts
+predicted_values <- garch13forecast
+
+# Evaluation metrics
+mae <- mean(abs(actual_values - predicted_values))
+mse <- mean((actual_values - predicted_values)^2)
+rmse <- sqrt(mse)
+# Calculate MAPE
+mape <- mean(abs((actual_values - predicted_values) / actual_values)) * 100
+
+# Calculate residuals
+residuals <- actual_values - predicted_values
+
+# Calculate AIC and BIC
+n <- length(actual_values)
+k <- 2  # Number of parameters in the model (change accordingly)
+aic <- n * log(mse) + 2 * k
+bic <- n * log(mse) + k * log(n)
+
+# Calculate Mean Squared Deviation (MSD)
+msd <- mean(residuals^2)
+
+# Calculate Mean Absolute Deviation (MAD)
+mad <- mean(abs(residuals))
+
+# Create an evaluation matrix
+evaluation_matrix <- data.frame(
+  MAE = mae,
+  MSE = mse,
+  RMSE = rmse,
+  MAPE = mape,
+  AIC = aic,
+  BIC = bic,
+  MSD = msd,
+  MAD = mad
+)
+
+# Print the evaluation matrix
+print(evaluation_matrix)
+```
+
+```{r}
+garchSpec13 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,3)),
+                          mean.model=list(armaOrder=c(1,2)))
+
+garch_fit <- ugarchfit(spec = garchSpec13, data = diff_train_data) 
+
+garch_forecast <- ugarchforecast(garch_fit, n.ahead = 90)  # Change '10' to the number of periods you want to forecast
+garch13forecast <- garch_forecast@forecast$seriesFor
+
+# Perform inverse differencing to obtain forecasts in the original scale
+garch13_forecast_original <- cumsum(c(tail(train.ts, 1), garch13forecast)) 
+
+# Combine train and forecasted data
+all_data <- c(train.ts, garch13_forecast_original)
+
+# Print the resulting data (train + forecasted values)
+print(all_data)
+
+# Compare with test data
+comparison_df <- data.frame(test.ts = test.ts, garch13_forecast_original = tail(garch13_forecast_original, 90))
+
+# Print the comparison data frame
+print(comparison_df)
+```
+
+```{r}
+actual_values <- test$Rataan.Ketinggian.Air.Laut
+predicted_values <- garch13_forecast_original
+
+# Evaluation metrics
+mae <- mean(abs(actual_values - predicted_values))
+mse <- mean((actual_values - predicted_values)^2)
+rmse <- sqrt(mse)
+# Calculate MAPE
+mape <- mean(abs((actual_values - predicted_values) / actual_values)) * 100
+
+# Calculate residuals
+residuals <- actual_values - predicted_values
+
+# Calculate AIC and BIC
+n <- length(actual_values)
+k <- 2  # Number of parameters in the model (change accordingly)
+aic <- n * log(mse) + 2 * k
+bic <- n * log(mse) + k * log(n)
+
+# Calculate Mean Squared Deviation (MSD)
+msd <- mean(residuals^2)
+
+# Calculate Mean Absolute Deviation (MAD)
+mad <- mean(abs(residuals))
+
+# Create an evaluation matrix
+evaluation_matrix <- data.frame(
+  MAE = mae,
+  MSE = mse,
+  RMSE = rmse,
+  MAPE = mape,
+  AIC = aic,
+  BIC = bic,
+  MSD = msd,
+  MAD = mad
+)
+
+# Print the evaluation matrix
+print(evaluation_matrix)
+```
+
+```{r}
+garchSpec31 <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(3,1)),
+                          mean.model=list(armaOrder=c(1,2)))
+
+garch_fit <- ugarchfit(spec = garchSpec31, data = diff_train_data) 
+
+garch_forecast <- ugarchforecast(garch_fit, n.ahead = 90)  # Change '10' to the number of periods you want to forecast
+garch31forecast_diff <- garch_forecast@forecast$seriesFor
+
+
+# Perform inverse differencing to obtain forecasts in the original scale
+garch31_forecast_original <- cumsum(c(tail(train.ts, 1), garch31forecast_diff)) 
+
+# Combine train and forecasted data
+all_data <- c(train.ts, garch31_forecast_original)
+
+# Create a data frame for comparison
+hasil_perbandingan <- data.frame(test.ts = test.ts, garch31_forecast_original = tail(garch31_forecast_original, 90))
+
+# Print the resulting data (train + forecasted values)
+print(all_data)
+
+# Print the comparison data frame
+print(hasil_perbandingan)
+```
+
+```{r}
+actual_values <- test$Rataan.Ketinggian.Air.Laut
+predicted_values <- garch31_forecast_original
+
+# Evaluation metrics
+mae <- mean(abs(actual_values - predicted_values))
+mse <- mean((actual_values - predicted_values)^2)
+rmse <- sqrt(mse)
+# Calculate MAPE
+mape <- mean(abs((actual_values - predicted_values) / actual_values)) * 100
+
+# Calculate residuals
+residuals <- actual_values - predicted_values
+
+# Calculate AIC and BIC
+n <- length(actual_values)
+k <- 2  # Number of parameters in the model (change accordingly)
+aic <- n * log(mse) + 2 * k
+bic <- n * log(mse) + k * log(n)
+
+# Calculate Mean Squared Deviation (MSD)
+msd <- mean(residuals^2)
+
+# Calculate Mean Absolute Deviation (MAD)
+mad <- mean(abs(residuals))
+
+# Create an evaluation matrix
+evaluation_matrix <- data.frame(
+  MAE = mae,
+  MSE = mse,
+  RMSE = rmse,
+  MAPE = mape,
+  AIC = aic,
+  BIC = bic,
+  MSD = msd,
+  MAD = mad
+)
+
+# Print the evaluation matrix
+print(evaluation_matrix)
+```
+
+
+
